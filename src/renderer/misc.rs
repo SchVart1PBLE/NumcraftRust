@@ -18,27 +18,25 @@ impl Renderer {
     pub fn draw_string(&mut self, text: &str, pos: &Vector2<usize>) {
         let mut text_cursor: usize = 0;
         for char in text.chars() {
-            let font_index = FONT_ORDER.chars().position(|c| c == char).unwrap();
-
+            // Use byte offset directly for ASCII printable chars — FONT_ORDER starts at '!'(33)
+            let font_index = FONT_ORDER.chars().position(|c| c == char).unwrap_or(0);
             let font_pixel_index = font_index * FONT_CHAR_WIDTH;
+            let pix_x_base = pos.x + text_cursor;
 
-            for x in 0..FONT_CHAR_WIDTH {
-                for y in 0..FONT_HEIGHT {
-                    let pixel_value = FONT_DATA[(font_pixel_index + x) + y * FONT_WIDTH];
-
-                    let rgb565 = Color565::from_rgb888(
-                        pixel_value as u16,
-                        pixel_value as u16,
-                        pixel_value as u16,
-                    );
-
-                    let pix_x = pos.x + x + text_cursor;
-
+            for y in 0..FONT_HEIGHT {
+                let row_offset = y * FONT_WIDTH;
+                let fb_row = (pos.y + y) * SCREEN_TILE_WIDTH;
+                for x in 0..FONT_CHAR_WIDTH {
+                    let pix_x = pix_x_base + x;
                     if pix_x >= SCREEN_TILE_WIDTH {
-                        continue;
+                        break;
                     }
-
-                    self.tile_frame_buffer[pix_x + (pos.y + y) * SCREEN_TILE_WIDTH] = rgb565;
+                    let pixel_value = FONT_DATA[(font_pixel_index + x) + row_offset] as u16;
+                    self.tile_frame_buffer[pix_x + fb_row] = Color565::from_rgb888(
+                        pixel_value,
+                        pixel_value,
+                        pixel_value,
+                    );
                 }
             }
             text_cursor += FONT_CHAR_WIDTH;
@@ -85,10 +83,11 @@ impl Renderer {
     }
 
     pub fn push_rect_uniform_on_frame_buffer(&mut self, rect: ScreenRect, color: Color565) {
-        for x in rect.x..(rect.x + rect.width) {
-            for y in rect.y..(rect.y + rect.height) {
-                self.tile_frame_buffer[x as usize + y as usize * SCREEN_TILE_WIDTH] = color;
-            }
+        let x0 = rect.x as usize;
+        let x1 = (rect.x + rect.width) as usize;
+        for y in rect.y..(rect.y + rect.height) {
+            let row = y as usize * SCREEN_TILE_WIDTH;
+            self.tile_frame_buffer[row + x0..row + x1].fill(color);
         }
     }
 
@@ -129,13 +128,13 @@ impl Renderer {
 }
 
 impl Color565 {
+    #[inline(always)]
     pub fn apply_light(&self, light_level: u8) -> Self {
-        let light_level = light_level as u16;
-        let rgb = self.get_components();
-        Color565::new(
-            rgb.0 * light_level / 255,
-            rgb.1 * light_level / 255,
-            rgb.2 * light_level / 255,
-        )
+        let l = light_level as u16;
+        // Extract channels directly from raw value — no function call overhead
+        let r = (self.value >> 11) & 0x1F;
+        let g = (self.value >> 5) & 0x3F;
+        let b = self.value & 0x1F;
+        Color565::new(r * l / 255, g * l / 255, b * l / 255)
     }
 }

@@ -331,83 +331,36 @@ impl Mesh {
     pub fn generate_chunk(chunks_manager: &ChunksManager, chunk: &Chunk) -> Self {
         let mut quads = Vec::new();
 
+        const DIRS: [(QuadDir, Vector3<isize>); 6] = [
+            (QuadDir::Front,  Vector3::new( 0,  0, -1)),
+            (QuadDir::Back,   Vector3::new( 0,  0,  1)),
+            (QuadDir::Right,  Vector3::new(-1,  0,  0)),
+            (QuadDir::Left,   Vector3::new( 1,  0,  0)),
+            (QuadDir::Top,    Vector3::new( 0,  1,  0)),
+            (QuadDir::Bottom, Vector3::new( 0, -1,  0)),
+        ];
+
         for x in 0..CHUNK_SIZE as isize {
             for y in 0..CHUNK_SIZE as isize {
                 for z in 0..CHUNK_SIZE as isize {
                     let block_type = chunk.get_at_unchecked(Vector3::new(x, y, z));
-                    if block_type != BlockType::Air {
-                        let bloc_pos = Vector3::new(x as u16, y as u16, z as u16);
+                    if block_type == BlockType::Air {
+                        continue;
+                    }
 
-                        let grid_additional_light = if (x + y + z) % 2 == 0 { 2 } else { 0 }; // Make one block/2 darker to increase visibility
+                    let bloc_pos = Vector3::new(x as u16, y as u16, z as u16);
+                    let grid_additional_light = if (x + y + z) % 2 == 0 { 2 } else { 0 };
 
-                        if get_block_in_chunk_or_world(Vector3::new(x, y, z - 1), chunks_manager, chunk)
-                            .is_some_and(|block| block.is_air())
+                    for (dir, offset) in &DIRS {
+                        let neighbor = Vector3::new(x + offset.x, y + offset.y, z + offset.z);
+                        if get_block_in_chunk_or_world(neighbor, chunks_manager, chunk)
+                            .is_some_and(|b| b.is_air())
                         {
                             quads.push(Quad::new(
                                 bloc_pos,
-                                QuadDir::Front,
-                                block_type.get_texture_id(QuadDir::Front),
-                                Mesh::get_light_level_from_dir(QuadDir::Front)
-                                    - grid_additional_light,
-                            ));
-                        }
-
-                        if get_block_in_chunk_or_world(Vector3::new(x, y, z + 1), chunks_manager, chunk)
-                            .is_some_and(|block| block.is_air())
-                        {
-                            quads.push(Quad::new(
-                                bloc_pos,
-                                QuadDir::Back,
-                                block_type.get_texture_id(QuadDir::Back),
-                                Mesh::get_light_level_from_dir(QuadDir::Back)
-                                    - grid_additional_light,
-                            ));
-                        }
-
-                        if get_block_in_chunk_or_world(Vector3::new(x - 1, y, z), chunks_manager, chunk)
-                            .is_some_and(|block| block.is_air())
-                        {
-                            quads.push(Quad::new(
-                                bloc_pos,
-                                QuadDir::Right,
-                                block_type.get_texture_id(QuadDir::Right),
-                                Mesh::get_light_level_from_dir(QuadDir::Right)
-                                    - grid_additional_light,
-                            ));
-                        }
-                        if get_block_in_chunk_or_world(Vector3::new(x + 1, y, z), chunks_manager, chunk)
-                            .is_some_and(|block| block.is_air())
-                        {
-                            quads.push(Quad::new(
-                                bloc_pos,
-                                QuadDir::Left,
-                                block_type.get_texture_id(QuadDir::Left),
-                                Mesh::get_light_level_from_dir(QuadDir::Left)
-                                    - grid_additional_light,
-                            ));
-                        }
-
-                        if get_block_in_chunk_or_world(Vector3::new(x, y + 1, z), chunks_manager, chunk)
-                            .is_some_and(|block| block.is_air())
-                        {
-                            quads.push(Quad::new(
-                                bloc_pos,
-                                QuadDir::Top,
-                                block_type.get_texture_id(QuadDir::Top),
-                                Mesh::get_light_level_from_dir(QuadDir::Top)
-                                    - grid_additional_light,
-                            ));
-                        }
-
-                        if get_block_in_chunk_or_world(Vector3::new(x, y - 1, z), chunks_manager, chunk)
-                            .is_some_and(|block| block.is_air())
-                        {
-                            quads.push(Quad::new(
-                                bloc_pos,
-                                QuadDir::Bottom,
-                                block_type.get_texture_id(QuadDir::Bottom),
-                                Mesh::get_light_level_from_dir(QuadDir::Bottom)
-                                    - grid_additional_light,
+                                *dir,
+                                block_type.get_texture_id(*dir),
+                                Mesh::get_light_level_from_dir(*dir) - grid_additional_light,
                             ));
                         }
                     }

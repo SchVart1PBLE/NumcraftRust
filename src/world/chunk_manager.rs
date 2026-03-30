@@ -65,18 +65,16 @@ impl ChunksManager {
 
     /// Used for rendering priority. Return a Vector of all the loaded chunks from the nearest to the farest
     pub fn get_chunks_sorted_by_distance(&mut self, pos: Vector3<f32>) -> Vec<&mut Chunk> {
+        let half = CHUNK_SIZE_I as f32 / 2.;
         let mut chunks: Vec<&mut Chunk> = self.chunks.iter_mut().collect();
 
         chunks.sort_by(|a, b| {
-            let a_dist = a
-                .get_pos()
-                .map(|x| (x * CHUNK_SIZE_I) as f32 + CHUNK_SIZE_I as f32 / 2.)
-                .metric_distance(&pos);
-            let b_dist = b
-                .get_pos()
-                .map(|x| (x * CHUNK_SIZE_I) as f32 + CHUNK_SIZE_I as f32 / 2.)
-                .metric_distance(&pos);
-            b_dist.total_cmp(&a_dist).reverse()
+            let a_center = a.get_pos().map(|x| (x * CHUNK_SIZE_I) as f32 + half);
+            let b_center = b.get_pos().map(|x| (x * CHUNK_SIZE_I) as f32 + half);
+            // Use squared distance to avoid sqrt
+            let a_dist2 = (a_center - pos).norm_squared();
+            let b_dist2 = (b_center - pos).norm_squared();
+            a_dist2.total_cmp(&b_dist2)
         });
 
         chunks

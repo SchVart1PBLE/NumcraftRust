@@ -12,6 +12,7 @@ use crate::{
 };
 
 /// Fill a triangle in the frame buffer
+#[inline]
 pub fn fill_triangle(
     mut t0: Vector2<isize>,
     mut t1: Vector2<isize>,
@@ -30,53 +31,53 @@ pub fn fill_triangle(
     }
 
     let triangle_height = t2.y - t0.y;
-    let triangle_heightf = triangle_height as f32;
+    if triangle_height == 0 {
+        return;
+    }
+    let inv_triangle_height = 1.0 / triangle_height as f32;
 
-    'height_iter: for i in 0..triangle_height {
-        let second_half = i > (t1.y - t0.y) || (t1.y == t0.y);
-        let segment_heightf = if second_half {
-            (t2.y - t1.y) as f32
+    let mid_height = t1.y - t0.y;
+    let inv_seg_first = if mid_height > 0 { 1.0 / mid_height as f32 } else { 0.0 };
+    let inv_seg_second = if (t2.y - t1.y) > 0 { 1.0 / (t2.y - t1.y) as f32 } else { 0.0 };
+
+    let dx20 = (t2.x - t0.x) as f32;
+    let dx10 = (t1.x - t0.x) as f32;
+    let dx21 = (t2.x - t1.x) as f32;
+
+    // Clamp y range to tile bounds
+    let y_start = t0.y.max(0);
+    let y_end = t2.y.min(SCREEN_TILE_HEIGHT as isize - 1);
+
+    for y in y_start..=y_end {
+        let i = y - t0.y;
+        let second_half = i > mid_height || mid_height == 0;
+
+        let alpha = i as f32 * inv_triangle_height;
+        let a = t0.x as f32 + dx20 * alpha;
+
+        let b = if second_half {
+            let beta = (i - mid_height) as f32 * inv_seg_second;
+            t1.x as f32 + dx21 * beta
         } else {
-            (t1.y - t0.y) as f32
+            let beta = i as f32 * inv_seg_first;
+            t0.x as f32 + dx10 * beta
         };
 
-        let alpha = i as f32 / triangle_heightf;
-        let beta = if second_half {
-            (i as f32 - (t1.y - t0.y) as f32) / segment_heightf
+        let (x_start, x_end) = if a <= b {
+            (a as isize, b as isize)
         } else {
-            i as f32 / segment_heightf
+            (b as isize, a as isize)
         };
 
-        let mut a = t0.x as f32 + ((t2 - t0).x as f32 * alpha);
-        let mut b = if second_half {
-            t1.x as f32 + ((t2 - t1).x as f32 * beta)
-        } else {
-            t0.x as f32 + ((t1 - t0).x as f32 * beta)
-        };
+        let x_start = x_start.max(0) as usize;
+        let x_end = (x_end as usize).min(SCREEN_TILE_WIDTH - 1);
 
-        if a > b {
-            swap(&mut a, &mut b);
-        }
-
-        let y = t0.y + i;
-        if y < 0 {
-            continue 'height_iter;
-        }
-        if y >= SCREEN_TILE_HEIGHT as isize {
-            break 'height_iter;
-        }
-
-        if (b as usize) < 1 {
-            // prevent line bug
+        if x_start > x_end {
             continue;
         }
 
-        for j in (a as usize)..=(b as usize) {
-            if j >= SCREEN_TILE_WIDTH {
-                continue 'height_iter;
-            }
-            frame_buffer[j + y as usize * SCREEN_TILE_WIDTH] = color;
-        }
+        let row_offset = y as usize * SCREEN_TILE_WIDTH;
+        frame_buffer[row_offset + x_start..=row_offset + x_end].fill(color);
     }
 }
 
@@ -201,12 +202,6 @@ pub fn triangle_clip_against_line(
 
     let dist = |p: Vector2<f32>| line_n.x * p.x + line_n.y * p.y - line_n.dot(line_p);
 
-    let binding = Default::default();
-    let mut inside_points: [&Vector2<f32>; 3] = [&binding; 3];
-    let mut n_inside_point_count = 0;
-    let mut outside_points: [&Vector2<f32>; 3] = [&binding; 3];
-    let mut n_outside_point_count = 0;
-
     let p1 = in_tri.p1.map(|x| x as f32);
     let p2 = in_tri.p2.map(|x| x as f32);
     let p3 = in_tri.p3.map(|x| x as f32);
@@ -215,67 +210,45 @@ pub fn triangle_clip_against_line(
     let d1 = dist(p2);
     let d2 = dist(p3);
 
-    if d0 >= 0.0 {
-        inside_points[n_inside_point_count] = &p1;
-        n_inside_point_count += 1;
-    } else {
-        outside_points[n_outside_point_count] = &p1;
-        n_outside_point_count += 1;
-    }
-    if d1 >= 0.0 {
-        inside_points[n_inside_point_count] = &p2;
-        n_inside_point_count += 1;
-    } else {
-        outside_points[n_outside_point_count] = &p2;
-        n_outside_point_count += 1;
-    }
-    if d2 >= 0.0 {
-        inside_points[n_inside_point_count] = &p3;
-        n_inside_point_count += 1;
-    } else {
-        outside_points[n_outside_point_count] = &p3;
-        n_outside_point_count += 1;
+    let pts = [(&p1, d0), (&p2, d1), (&p3, d2)];
+    let mut inside: [&Vector2<f32>; 3] = [&p1; 3];
+    let mut outside: [&Vector2<f32>; 3] = [&p1; 3];
+    let mut ni = 0usize;
+    let mut no = 0usize;
+    for (p, d) in &pts {
+        if *d >= 0.0 { inside[ni] = p; ni += 1; }
+        else         { outside[no] = p; no += 1; }
     }
 
-    if n_inside_point_count == 0 {
-        return (None, None);
-    }
+    if ni == 0 { return (None, None); }
+    if ni == 3 { return (Some(*in_tri), None); }
 
-    if n_inside_point_count == 3 {
-        return (Some(*in_tri), None);
-    }
-
-    if n_inside_point_count == 1 && n_outside_point_count == 2 {
-        let out_tri = Triangle2D {
-            p1: inside_points[0].map(|x| x as i16),
-            p2: vector_intersect_line(line_p, &line_n, inside_points[0], outside_points[0]),
-            p3: vector_intersect_line(line_p, &line_n, inside_points[0], outside_points[1]),
+    if ni == 1 && no == 2 {
+        return (Some(Triangle2D {
+            p1: inside[0].map(|x| x as i16),
+            p2: vector_intersect_line(line_p, &line_n, inside[0], outside[0]),
+            p3: vector_intersect_line(line_p, &line_n, inside[0], outside[1]),
             texture_id: in_tri.texture_id,
             light: in_tri.light,
-        };
-
-        return (Some(out_tri), None);
+        }), None);
     }
 
-    if n_inside_point_count == 2 && n_outside_point_count == 1 {
-        let out_tri1 = Triangle2D {
-            p1: inside_points[0].map(|x| x as i16),
-            p2: inside_points[1].map(|x| x as i16),
-            p3: vector_intersect_line(line_p, &line_n, inside_points[0], outside_points[0]),
-            texture_id: in_tri.texture_id,
-            light: in_tri.light,
-        };
-
-        let out_tri2 = Triangle2D {
-            p1: inside_points[1].map(|x| x as i16),
-            p2: out_tri1.p3,
-            p3: vector_intersect_line(line_p, &line_n, inside_points[1], outside_points[0]),
-            texture_id: in_tri.texture_id,
-            light: in_tri.light,
-        };
-        return (Some(out_tri1), Some(out_tri2));
-    }
-    (None, None)
+    // ni == 2 && no == 1
+    let t1 = Triangle2D {
+        p1: inside[0].map(|x| x as i16),
+        p2: inside[1].map(|x| x as i16),
+        p3: vector_intersect_line(line_p, &line_n, inside[0], outside[0]),
+        texture_id: in_tri.texture_id,
+        light: in_tri.light,
+    };
+    let t2 = Triangle2D {
+        p1: inside[1].map(|x| x as i16),
+        p2: t1.p3,
+        p3: vector_intersect_line(line_p, &line_n, inside[1], outside[0]),
+        texture_id: in_tri.texture_id,
+        light: in_tri.light,
+    };
+    (Some(t1), Some(t2))
 }
 
 pub fn triangle_clip_against_plane(
@@ -285,81 +258,52 @@ pub fn triangle_clip_against_plane(
 ) -> (Option<Triangle>, Option<Triangle>) {
     let plane_n = plane_n.normalize();
 
-    let dist = |p: Vector3<f32>| {
-        plane_n.x * p.x + plane_n.y * p.y + plane_n.z * p.z - plane_n.dot(plane_p)
-    };
-
-    let binding = Default::default();
-    let mut inside_points: [&Vector3<f32>; 3] = [&binding; 3];
-    let mut n_inside_point_count = 0;
-    let mut outside_points: [&Vector3<f32>; 3] = [&binding; 3];
-    let mut n_outside_point_count = 0;
+    let dist =
+        |p: Vector3<f32>| plane_n.x * p.x + plane_n.y * p.y + plane_n.z * p.z - plane_n.dot(plane_p);
 
     let d0 = dist(in_tri.p1);
     let d1 = dist(in_tri.p2);
     let d2 = dist(in_tri.p3);
 
-    if d0 >= 0.0 {
-        inside_points[n_inside_point_count] = &in_tri.p1;
-        n_inside_point_count += 1;
-    } else {
-        outside_points[n_outside_point_count] = &in_tri.p1;
-        n_outside_point_count += 1;
-    }
-    if d1 >= 0.0 {
-        inside_points[n_inside_point_count] = &in_tri.p2;
-        n_inside_point_count += 1;
-    } else {
-        outside_points[n_outside_point_count] = &in_tri.p2;
-        n_outside_point_count += 1;
-    }
-    if d2 >= 0.0 {
-        inside_points[n_inside_point_count] = &in_tri.p3;
-        n_inside_point_count += 1;
-    } else {
-        outside_points[n_outside_point_count] = &in_tri.p3;
-        n_outside_point_count += 1;
+    let pts = [(&in_tri.p1, d0), (&in_tri.p2, d1), (&in_tri.p3, d2)];
+    let mut inside: [&Vector3<f32>; 3] = [&in_tri.p1; 3];
+    let mut outside: [&Vector3<f32>; 3] = [&in_tri.p1; 3];
+    let mut ni = 0usize;
+    let mut no = 0usize;
+    for (p, d) in &pts {
+        if *d >= 0.0 { inside[ni] = p; ni += 1; }
+        else         { outside[no] = p; no += 1; }
     }
 
-    if n_inside_point_count == 0 {
-        return (None, None);
-    }
+    if ni == 0 { return (None, None); }
+    if ni == 3 { return (Some(*in_tri), None); }
 
-    if n_inside_point_count == 3 {
-        return (Some(*in_tri), None);
-    }
-
-    if n_inside_point_count == 1 && n_outside_point_count == 2 {
-        let out_tri = Triangle {
-            p1: *inside_points[0],
-            p2: vector_intersect_plane(plane_p, &plane_n, inside_points[0], outside_points[0]),
-            p3: vector_intersect_plane(plane_p, &plane_n, inside_points[0], outside_points[1]),
+    if ni == 1 && no == 2 {
+        return (Some(Triangle {
+            p1: *inside[0],
+            p2: vector_intersect_plane(plane_p, &plane_n, inside[0], outside[0]),
+            p3: vector_intersect_plane(plane_p, &plane_n, inside[0], outside[1]),
             texture_id: in_tri.texture_id,
             light: in_tri.light,
-        };
-
-        return (Some(out_tri), None);
+        }), None);
     }
 
-    if n_inside_point_count == 2 && n_outside_point_count == 1 {
-        let out_tri1 = Triangle {
-            p1: *inside_points[0],
-            p2: *inside_points[1],
-            p3: vector_intersect_plane(plane_p, &plane_n, inside_points[0], outside_points[0]),
-            texture_id: in_tri.texture_id,
-            light: in_tri.light,
-        };
-
-        let out_tri2 = Triangle {
-            p1: *inside_points[1],
-            p2: out_tri1.p3,
-            p3: vector_intersect_plane(plane_p, &plane_n, inside_points[1], outside_points[0]),
-            texture_id: in_tri.texture_id,
-            light: in_tri.light,
-        };
-        return (Some(out_tri1), Some(out_tri2));
-    }
-    (None, None)
+    // ni == 2 && no == 1
+    let t1 = Triangle {
+        p1: *inside[0],
+        p2: *inside[1],
+        p3: vector_intersect_plane(plane_p, &plane_n, inside[0], outside[0]),
+        texture_id: in_tri.texture_id,
+        light: in_tri.light,
+    };
+    let t2 = Triangle {
+        p1: *inside[1],
+        p2: t1.p3,
+        p3: vector_intersect_plane(plane_p, &plane_n, inside[1], outside[0]),
+        texture_id: in_tri.texture_id,
+        light: in_tri.light,
+    };
+    (Some(t1), Some(t2))
 }
 
 impl Renderer {
@@ -543,24 +487,14 @@ impl Renderer {
             let quads = chunk.get_mesh().get_reference_vec();
 
             if need_sorting {
+                let cam = *self.camera.get_pos();
                 quads.sort_by(|a, b| -> Ordering {
                     let a_pos = a.get_pos().map(|x| x as isize) + chunk_blocks_pos;
                     let b_pos = b.get_pos().map(|x| x as isize) + chunk_blocks_pos;
-                    let avec = Vector3::new(
-                        a_pos.x as f32 + 0.5,
-                        a_pos.y as f32 + 0.5,
-                        a_pos.z as f32 + 0.5,
-                    );
-
-                    let bvec = Vector3::new(
-                        b_pos.x as f32 + 0.5,
-                        b_pos.y as f32 + 0.5,
-                        b_pos.z as f32 + 0.5,
-                    );
-
-                    bvec.metric_distance(self.camera.get_pos())
-                        .total_cmp(&avec.metric_distance(self.camera.get_pos()))
-                        .reverse()
+                    let avec = Vector3::new(a_pos.x as f32 + 0.5, a_pos.y as f32 + 0.5, a_pos.z as f32 + 0.5);
+                    let bvec = Vector3::new(b_pos.x as f32 + 0.5, b_pos.y as f32 + 0.5, b_pos.z as f32 + 0.5);
+                    (avec - cam).norm_squared()
+                        .total_cmp(&(bvec - cam).norm_squared())
                 });
             }
             for quad in quads {

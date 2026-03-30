@@ -59,16 +59,6 @@ impl Frustum {
     }
 
     pub fn is_aabb_in_frustum(&self, min: Vector3<f32>, max: Vector3<f32>) -> bool {
-        let corners = [
-            Vector3::new(min.x, min.y, min.z),
-            Vector3::new(max.x, min.y, min.z),
-            Vector3::new(min.x, max.y, min.z),
-            Vector3::new(max.x, max.y, min.z),
-            Vector3::new(min.x, min.y, max.z),
-            Vector3::new(max.x, min.y, max.z),
-            Vector3::new(min.x, max.y, max.z),
-            Vector3::new(max.x, max.y, max.z),
-        ];
         for plane in [
             &self.far_plane,
             &self.near_plane,
@@ -77,10 +67,13 @@ impl Frustum {
             &self.top_plane,
             &self.bottom_plane,
         ] {
-            if corners
-                .iter()
-                .all(|c| (c - plane.pos).dot(&plane.normal) < 0.0)
-            {
+            // Pick the "positive vertex" — the corner of the AABB most in the direction of the plane normal
+            let p = Vector3::new(
+                if plane.normal.x >= 0.0 { max.x } else { min.x },
+                if plane.normal.y >= 0.0 { max.y } else { min.y },
+                if plane.normal.z >= 0.0 { max.z } else { min.z },
+            );
+            if (p - plane.pos).dot(&plane.normal) < 0.0 {
                 return false;
             }
         }

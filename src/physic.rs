@@ -41,22 +41,19 @@ impl PhysicEngine {
             }
         }
 
-        // Friction
+        // Friction (apply per-axis, no sqrt needed)
         for entity in world.get_all_entities_mut().iter_mut() {
-            if entity.velocity.norm() > 0. {
-                let friction_vector = entity.velocity.normalize() * ON_FLOOR_FRICTION * delta_time;
-
-                if entity.velocity.x > 0. {
-                    entity.velocity.x -= friction_vector.x.min(entity.velocity.x);
-                } else if entity.velocity.x < 0. {
-                    entity.velocity.x -= friction_vector.x.max(entity.velocity.x);
-                }
-
-                if entity.velocity.z > 0. {
-                    entity.velocity.z -= friction_vector.z.min(entity.velocity.z);
-                } else if entity.velocity.z < 0. {
-                    entity.velocity.z -= friction_vector.z.max(entity.velocity.z);
-                }
+            let v = &mut entity.velocity;
+            let fx = ON_FLOOR_FRICTION * delta_time;
+            if v.x.abs() > fx {
+                v.x -= v.x.signum() * fx;
+            } else {
+                v.x = 0.0;
+            }
+            if v.z.abs() > fx {
+                v.z -= v.z.signum() * fx;
+            } else {
+                v.z = 0.0;
             }
         }
     }
